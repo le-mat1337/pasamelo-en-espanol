@@ -15,6 +15,14 @@
       "entrypoint": "app:app"
     }
   },
+  "redirects": [
+    {
+      "source": "/:path((?!api/cron/).*)",
+      "has": [{ "type": "host", "value": "pasameloenespanol\\.vercel\\.app" }],
+      "destination": "https://xn--pasameloenespaol-kub.com/:path",
+      "permanent": true
+    }
+  ],
   "rewrites": [
     { "source": "/api/(.*)", "destination": { "service": "backend" } },
     { "source": "/((?!_vercel/).*)", "destination": { "service": "web" } }
