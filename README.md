@@ -36,7 +36,7 @@ El repo es público y cualquiera puede buscarle la vuelta; el objetivo es que ab
 8. **Frontend:** CSP estricta sin `unsafe-inline` (nada inline en el build), HSTS, `nosniff`, `X-Frame-Options: DENY`, COOP, Permissions-Policy, `/v/*` con `noindex`, IDs de 96 bits, sin listado de jobs.
 9. **Errores y datos:** mensajes fijos; nunca se devuelve stderr, stack traces ni nombres de variables; sin docs públicas de la API; los logs no tienen IP ni URLs firmadas.
 10. **Cron** solo con `Authorization: Bearer $CRON_SECRET` (comparación en tiempo constante).
-11. **Secretos y dependencias:** todo por variables de entorno (`.env.example` documenta todas), gitleaks en CI y en pre-commit, Dependabot semanal, lockfiles commiteados.
+11. **Secretos y dependencias:** todo por variables de entorno (`.env.example` documenta todas), gitleaks en CI y en pre-commit, Dependabot (diario para Python por yt-dlp, semanal para el resto), lockfiles commiteados.
 
 Para reportar algo: [`SECURITY.md`](SECURITY.md).
 

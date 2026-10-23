@@ -3,7 +3,8 @@ updates:
   - package-ecosystem: uv
     directory: /backend
     schedule:
-      interval: weekly
+      # Diario por yt-dlp: cuando Instagram o TikTok cambian algo, el arreglo sale en horas
+      interval: daily
     groups:
       python:
         patterns: ["*"]
