@@ -1,0 +1,57 @@
+---
+import '@fontsource/archivo-black';
+import '@fontsource-variable/archivo';
+import '../styles/global.css';
+
+interface Props {
+  title: string;
+  description?: string;
+  oscuro?: boolean;
+  indexar?: boolean;
+}
+const {
+  title,
+  description = '¿Cómo no va a saber inglés en big 2026? 💀 Pegá el link de un reel o un TikTok y mandáselo con subtítulos en español. Gratis, sin cuenta.',
+  oscuro = false,
+  indexar = true,
+} = Astro.props;
+const canonical = new URL(Astro.url.pathname, Astro.site);
+const og = new URL('/og.png', Astro.site);
+const repo = import.meta.env.PUBLIC_REPO_URL || 'https://github.com/le-mat1337/pasamelo-en-espanol';
+const autor = import.meta.env.PUBLIC_AUTOR_URL || 'https://www.instagram.com/le.mat1337/';
+---
+
+<!doctype html>
+<html lang="es-AR" class:list={{ ver: oscuro }}>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    {!indexar && <meta name="robots" content="noindex, nofollow" />}
+    <link rel="canonical" href={canonical} />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content={oscuro ? '#111111' : '#fff8d6'} />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content={oscuro ? '#111111' : '#141414'} />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="pasámelo en español" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:image" content={og} />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:locale" content="es_AR" />
+    <meta name="twitter:card" content="summary_large_image" />
+  </head>
+  <body>
+    <main class="col">
+      <slot />
+      <footer class="pie">
+        <span>Hecho por <a href={autor}>Fool Stack Dev</a></span>
+        <a href={repo}>Código abierto</a>
+      </footer>
+    </main>
+    {import.meta.env.PROD && <script is:inline defer src="/_vercel/insights/script.js" />}
+  </body>
+</html>

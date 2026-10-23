@@ -1,0 +1,101 @@
+---
+import Base from '../layouts/Base.astro';
+import Marca from '../components/Marca.astro';
+
+// Clave de prueba de Turnstile (siempre pasa) solo en desarrollo.
+const siteKey = import.meta.env.PUBLIC_TURNSTILE_SITE_KEY || (import.meta.env.DEV ? '1x00000000000000000000AA' : '');
+const porDia = Number(import.meta.env.PUBLIC_MAX_POR_IP_DIA || 3);
+const minutos = Math.round(Number(import.meta.env.PUBLIC_MAX_DURACION_S || 180) / 60);
+---
+
+<Base title="Pasámelo en español: reels y TikToks en inglés, con subtítulos">
+  <Marca />
+
+  <header class="hero">
+    <h1>¿Cómo no va a saber inglés en big 2026?</h1>
+    <div class="calavera" aria-hidden="true">💀</div>
+    <p class="bajada">
+      Tu amigo bostero, tu vieja, el grupo. Pegá el link del reel o del TikTok y mandales la versión subtitulada.
+    </p>
+  </header>
+
+  <form id="form" class="tarjeta" novalidate data-sitekey={siteKey}>
+    <label for="link" class="sr">Link del reel o del TikTok</label>
+    <div class="campo">
+      <input
+        id="link"
+        name="link"
+        type="url"
+        inputmode="url"
+        autocomplete="off"
+        autocapitalize="off"
+        spellcheck="false"
+        enterkeyhint="go"
+        maxlength="2048"
+        placeholder="Link del reel o TikTok"
+        required
+      />
+      <button type="button" id="pegar" class="pegar" hidden>Pegar</button>
+    </div>
+    <button type="submit" id="enviar" class="cta">Pasámelo <span aria-hidden="true">→</span></button>
+    <div id="captcha"></div>
+    <p id="aviso" class="nota" hidden>Tocá la casilla para confirmar que sos una persona.</p>
+    <p id="error" class="error" role="alert" hidden></p>
+    <div id="espera" class="bloque" hidden>
+      <ol id="progreso" class="progreso" aria-live="polite">
+        <li data-etapa="descargando">Bajando el video</li>
+        <li data-etapa="escuchando">Escuchando lo que dicen</li>
+        <li data-etapa="traduciendo">Traduciendo al mejor idioma</li>
+        <li data-etapa="guardando">Armando tu link</li>
+      </ol>
+      <p class="nota">Tarda menos de un minuto. Podés dejar esta pestaña abierta.</p>
+    </div>
+    <p class="nota">Tarda menos de un minuto. El link que te doy dura 24 horas.</p>
+  </form>
+
+  <figure class="tuit" aria-label="El meme: la respuesta a un tuit en inglés">
+    <div class="tuit-cab">
+      <span class="tuit-avatar" aria-hidden="true">S</span>
+      <div><b>Santi Salinas</b><span class="tuit-handle">@SantiSalinas30 · 26 ene. 2020</span></div>
+    </div>
+    <p class="tuit-resp">En respuesta a <span>@manuginobili</span></p>
+    <p class="tuit-texto">Escribí en español culo roto</p>
+    <ul class="tuit-pie" aria-hidden="true">
+      <li><svg viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z"/></svg>385</li>
+      <li><svg viewBox="0 0 24 24"><path d="M6 8h10l-3-3m3 3-3 3M18 16H8l3 3m-3-3 3-3"/></svg>52</li>
+      <li><svg viewBox="0 0 24 24"><path d="M12 20s-7-4.5-7-10a4 4 0 0 1 7-2.5A4 4 0 0 1 19 10c0 5.5-7 10-7 10z"/></svg>1,2 mil</li>
+    </ul>
+  </figure>
+
+  <section class="bloque">
+    <h2>Cómo se usa</h2>
+    <ol class="pasos">
+      <li><span><strong>Copiá el link.</strong> En el reel o el TikTok tocá Compartir y después Copiar enlace.</span></li>
+      <li><span><strong>Pegalo acá</strong> y tocá Pasámelo.</span></li>
+      <li><span><strong>Mandá el link</strong> al que no sabe inglés y que lo vea con subtítulos.</span></li>
+    </ol>
+  </section>
+
+  <section class="bloque">
+    <h2>Preguntas</h2>
+    <div>
+      <details>
+        <summary>¿Guardan algo?</summary>
+        <p>El video subtitulado se borra a las 24 horas. No guardo tu IP ni ningún dato tuyo, y el código está abierto para que lo revise cualquiera. Para que siga siendo gratis, son {porDia} videos por día por persona, de hasta {minutos} minutos cada uno.</p>
+      </details>
+      <details>
+        <summary>¿Por qué a veces no puede bajar un reel?</summary>
+        <p>Si el reel es privado o Instagram se pone denso un rato, no lo puedo bajar. Con TikTok pasa mucho menos.</p>
+      </details>
+      <details>
+        <summary>¿Los subtítulos son perfectos?</summary>
+        <p>Los hace una inteligencia artificial: casi siempre se entienden, pero puede pifiar con nombres o chistes muy rebuscados.</p>
+      </details>
+    </div>
+  </section>
+</Base>
+
+<script is:inline src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" async defer></script>
+<script>
+  import '../scripts/inicio';
+</script>

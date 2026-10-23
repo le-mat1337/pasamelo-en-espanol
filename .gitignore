@@ -1,0 +1,21 @@
+# secretos
+.env
+.env.*
+!.env.example
+# node
+node_modules/
+web/dist/
+web/.astro/
+# python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+# vercel
+.vercel/
+# temporales
+*.mp4
+*.m4a
+*.log
+tmp/

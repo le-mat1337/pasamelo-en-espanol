@@ -1,0 +1,56 @@
+---
+import Base from '../../layouts/Base.astro';
+import Marca from '../../components/Marca.astro';
+---
+
+<Base
+  title="Te lo pasaron en español"
+  description="Un reel en inglés con subtítulos en español, para quien no sabe inglés en big 2026 💀. El link dura 24 horas."
+  oscuro
+  indexar={false}
+>
+  <div class="barra-sup">
+    <Marca />
+    <span id="expira" class="expira"></span>
+  </div>
+
+  <div id="reproductor" class="bloque" hidden>
+    <p class="tira">
+      No sabés inglés en big 2026 💀
+      <small>Un idioma inferior al español y ni así lo aprendiste. Tranqui, acá lo tenés subtitulado.</small>
+    </p>
+    <div id="marco" class="marco">
+      <video id="video" playsinline preload="metadata"></video>
+      <div id="subs" class="subs" aria-hidden="true"><span id="sub" hidden></span></div>
+      <button id="mover" class="mover" type="button" aria-label="Mover los subtítulos arriba o abajo">↕ Subtítulos</button>
+      <button id="grande" class="grande" type="button" aria-label="Ver en pantalla grande">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+        <span id="grande-texto">Pantalla grande</span>
+      </button>
+      <button id="play" class="play" type="button" aria-label="Reproducir">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M7 4.5v15a1 1 0 0 0 1.5.86l12-7.5a1 1 0 0 0 0-1.72l-12-7.5A1 1 0 0 0 7 4.5Z"></path></svg>
+      </button>
+      <div id="avance" class="avance" role="slider" aria-label="Avance del video" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" tabindex="0"><div id="barra"></div></div>
+    </div>
+    <p class="credito"><span id="credito"></span> · Subtítulos automáticos: pueden pifiar.</p>
+    <div class="acciones">
+      <a id="whatsapp" class="cta wa" href="https://wa.me/">Mandar por WhatsApp</a>
+      <p class="ganchito">Seguro conocés a otro que tampoco sabe.</p>
+      <div class="fila">
+        <button id="copiar" class="sec" type="button">Copiar link</button>
+        <button id="compartir" class="sec" type="button">Más opciones</button>
+      </div>
+      <a class="sec" href="/">Traducir otro video</a>
+    </div>
+  </div>
+
+  <div id="estado" class="estado">
+    <h1 id="estado-titulo">Cargando…</h1>
+    <p id="estado-texto" class="bajada"></p>
+    <a id="estado-cta" class="cta" href="/" hidden>Traducir un video</a>
+  </div>
+</Base>
+
+<script>
+  import '../../scripts/ver';
+</script>

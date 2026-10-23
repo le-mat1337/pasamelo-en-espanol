@@ -1,0 +1,36 @@
+[project]
+name = "pes-backend"
+version = "0.1.0"
+description = "Backend de pasameloenespañol.com: baja un reel o TikTok, lo transcribe y lo subtitula al español."
+requires-python = ">=3.12"
+license = "MIT"
+dependencies = [
+  "fastapi>=0.159",
+  "httpx>=0.28",
+  "yt-dlp>=2026.10.21",
+  "imageio-ffmpeg>=0.6",
+  "upstash-redis>=1.8",
+  "vercel>=0.12",
+  "anthropic>=2.1",
+]
+
+[dependency-groups]
+dev = [
+  "pytest>=9.1",
+  "uvicorn>=0.54",
+  "ruff>=0.14",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "S", "ASYNC"]
+ignore = ["S603"]  # subprocess sin shell es intencional (ver pes/descarga.py)
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S105", "S106", "S108", "ASYNC240", "E501"]
