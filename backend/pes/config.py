@@ -60,7 +60,7 @@ class Config:
     hosts_turnstile: tuple[str, ...] = field(default_factory=tuple)
     texto: bool = True  # leer el texto escrito sobre el video cuando es una canción o no habla nadie
     modelo_groq_vision: str = "qwen/qwen3.8-27b"
-    texto_cuadros: int = 18  # cuadros por video para leer el texto (9 por imagen, hasta 3 imágenes)
+    texto_cuadros: int = 18  # cuadros por video para leer el texto (9 o 6 por imagen, hasta 3 imágenes)
 
     @property
     def produccion(self) -> bool:

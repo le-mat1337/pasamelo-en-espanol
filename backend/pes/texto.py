@@ -3,11 +3,15 @@
 Corre solo cuando el video es una canción o no habla nadie (ver `jobs.py`): el tier gratis
 cuenta cada imagen como 2048 tokens y da 8.000 por minuto.
 
-- ffmpeg arma grillas de 3×3 cuadros (uno cada 2 s o más, hasta `texto_cuadros`), con borde
-  blanco entre celdas. Decodifica con un hilo, sin el filtro de bloques y salteando los cuadros
-  que no son referencia: ~4 veces menos CPU, y el texto se sigue leyendo.
-- El modelo lista el texto de cada cuadro y los tramos se arman acá. Pedirle los rangos
-  directamente salió mal: no cuenta bien las celdas entre imágenes.
+- ffmpeg arma grillas de cuadros (uno cada 2 s o más, hasta `texto_cuadros`), con borde blanco
+  entre celdas: 3×3 de 352 px si el video es vertical, 2 columnas × 3 filas de 540 px si es
+  horizontal o cuadrado. Groq achica cada imagen, y en un video horizontal el texto queda más
+  chico: con 352 px, el de un dibujito animado medía ~8 px y el modelo no leía nada.
+- Decodifica con un hilo, sin el filtro de bloques y salteando los cuadros que no son
+  referencia: ~4 veces menos CPU, y el texto se sigue leyendo.
+- Un pedido por imagen, en paralelo: con varias imágenes en un pedido el modelo a veces
+  devolvía la lista vacía. El modelo lista el texto de cada cuadro y los tramos se arman acá;
+  pedirle los rangos directamente salió mal.
 - Lo leído es de un tercero: dato, no instrucciones. Salida con esquema estricto, cuadros fuera
   de rango descartados, sin hashtags ni @usuarios, largo acotado; el frontend usa textContent.
 """
@@ -30,15 +34,14 @@ import httpx
 
 from .config import Config
 from .descarga import _correr, ffmpeg
-from .errores import error
+from .errores import PesError, error
 from .traduce import GROQ_CHAT, SalidaInvalida, _codigo_error, limpiar
 from .transcribe import segundos_de_espera
 
 log = logging.getLogger("pes")
 
-POR_LADO = 3
-ANCHO_CUADRO = 352  # 3 cuadros + 4 bordes = 1104 px de ancho
 BORDE = 12
+MAX_IMAGENES = 3  # tope de Groq por pedido
 MIN_CADA_S = 2.0
 MAX_TEXTOS = 40
 MAX_CHARS = 300
@@ -49,13 +52,14 @@ POSICIONES = ("top", "mid", "bot")
 RE_ETIQUETA = re.compile(r"(?<![\w@#])[#@][\w.]+")
 RE_LETRA = re.compile(r"[^\W\d_]")
 RE_PALABRAS = re.compile(r"\w+")
+RE_TAMANO = re.compile(r"Video: .*?, (\d{2,5})x(\d{2,5})[ ,\[]")
+RE_ROTADO = re.compile(r"rotation of -?(90|270)")
 
-SISTEMA = """You read the text that is burned into a short vertical social media video (Instagram Reel or \
-TikTok).
+SISTEMA = """You read the text that is burned into a short social media video (Instagram Reel or TikTok).
 
-The images are contact sheets: grids of frames taken from the video at regular intervals, separated \
-by white lines. Frames are numbered from 0, left to right and top to bottom, and the numbering \
-continues from one image to the next. Cells after the last frame are empty padding.
+The image is a contact sheet: a grid of frames taken from the video at regular intervals, separated \
+by white lines. Frames are numbered from 0, left to right and top to bottom. Cells after the last \
+frame are empty padding.
 
 Go through the frames one by one, in order, and for each frame list the captions that the creator \
 put on top of the video: titles, text overlays, lyrics, stickers with words. For each caption give:
@@ -104,6 +108,29 @@ ESQUEMA = {
 
 
 @dataclass(frozen=True)
+class Disposicion:
+    columnas: int
+    filas: int
+    ancho: int  # de cada cuadro, en px
+
+    @property
+    def por_imagen(self) -> int:
+        return self.columnas * self.filas
+
+
+VERTICAL = Disposicion(3, 3, 352)  # 3 × 352 + 4 bordes = 1104 px de ancho
+HORIZONTAL = Disposicion(2, 3, 540)  # 2 × 540 + 3 bordes = 1116 px
+
+
+@dataclass(frozen=True)
+class Grillas:
+    imagenes: list[Path]
+    n: int  # cuadros
+    cada: float  # segundos entre cuadros
+    por_imagen: int
+
+
+@dataclass(frozen=True)
 class TextoVisto:
     texto: str
     ini: float
@@ -122,35 +149,46 @@ class _Tramo:
     pos: Counter = field(default_factory=Counter)
 
 
-def plan_cuadros(duracion: float, max_cuadros: int) -> tuple[int, float]:
-    """(cuántos cuadros, cada cuántos segundos): uno cada 2 s o más, hasta `max_cuadros`."""
-    max_cuadros = max(1, min(max_cuadros, 3 * POR_LADO * POR_LADO))
+def plan_cuadros(duracion: float, max_cuadros: int, por_imagen: int = VERTICAL.por_imagen) -> tuple[int, float]:
+    """(cuántos cuadros, cada cuántos segundos): uno cada 2 s o más, hasta `max_cuadros` y lo que
+    entra en las imágenes que acepta Groq."""
+    max_cuadros = max(1, min(max_cuadros, MAX_IMAGENES * por_imagen))
     cada = max(MIN_CADA_S, duracion / max_cuadros)
     n = math.floor(max(0.0, duracion - 0.05) / cada) + 1
     return max(1, min(max_cuadros, n)), cada
 
 
-def grillas(
-    video: Path, carpeta: Path, duracion: float, max_cuadros: int, timeout: int = 60
-) -> tuple[list[Path], int, float]:
-    """Bloqueante. Devuelve (imágenes JPEG, cantidad de cuadros, segundos entre cuadros)."""
-    n, cada = plan_cuadros(duracion, max_cuadros)
+def disposicion(video: Path, carpeta: Path) -> Disposicion:
+    """Vertical u horizontal según el video (girado, si el archivo lo dice). Si no se sabe, vertical."""
+    sonda = _correr([ffmpeg(), "-hide_banner", "-nostdin", "-i", str(video)], carpeta, 30).stderr
+    if not (m := RE_TAMANO.search(sonda)):
+        return VERTICAL
+    ancho, alto = int(m[1]), int(m[2])
+    if RE_ROTADO.search(sonda):
+        ancho, alto = alto, ancho
+    return VERTICAL if alto > ancho else HORIZONTAL
+
+
+def grillas(video: Path, carpeta: Path, duracion: float, max_cuadros: int, timeout: int = 60) -> Grillas:
+    """Bloqueante: arma las imágenes JPEG con los cuadros del video."""
+    d = disposicion(video, carpeta)
+    n, cada = plan_cuadros(duracion, max_cuadros, d.por_imagen)
     filtro = (
-        f"fps=fps={1 / cada:.6f},trim=end_frame={n},scale={ANCHO_CUADRO}:-2,"
-        f"tile={POR_LADO}x{POR_LADO}:padding={BORDE}:margin={BORDE}:color=white"
+        f"fps=fps={1 / cada:.6f},trim=end_frame={n},scale={d.ancho}:-2,"
+        f"tile={d.columnas}x{d.filas}:padding={BORDE}:margin={BORDE}:color=white"
     )
     args = [
         ffmpeg(), "-hide_banner", "-nostdin", "-loglevel", "error", "-y",
         "-threads", "1", "-skip_loop_filter", "all", "-skip_frame", "noref",
         "-i", str(video), "-vf", filtro,
-        "-frames:v", str(math.ceil(n / (POR_LADO * POR_LADO))), "-q:v", "4",
+        "-frames:v", str(math.ceil(n / d.por_imagen)), "-q:v", "4",
         str(carpeta / "grilla-%02d.jpg"),
     ]  # fmt: skip
     proc = _correr(args, carpeta, timeout)
     salida = sorted(carpeta.glob("grilla-*.jpg"))
     if proc.returncode != 0 or not salida:
         raise RuntimeError(f"ffmpeg no armó las grillas (código {proc.returncode})")
-    return salida, n, cada
+    return Grillas(salida, n, cada, d.por_imagen)
 
 
 def limpiar_visto(texto: str) -> str:
@@ -176,21 +214,29 @@ def _tramo_abierto(tramos: list[_Tramo], clave: str, f: int) -> _Tramo | None:
     return None
 
 
-def unir_cuadros(crudo: str, n: int, cada: float, duracion: float) -> list[TextoVisto]:
-    """La lista por cuadro del modelo -> textos con su tramo de tiempo, posición e idioma."""
+def por_cuadro(crudo: str, k: int) -> dict[int, list]:
+    """La respuesta del modelo para una imagen -> {cuadro: textos crudos}, solo cuadros 0..k-1."""
     try:
         cuadros = json.loads(crudo)["frames"]
     except (json.JSONDecodeError, KeyError, TypeError):
         raise SalidaInvalida("json") from None
     if not isinstance(cuadros, list):
         raise SalidaInvalida("json")
-
-    por_cuadro: dict[int, list] = {}
+    salida: dict[int, list] = {}
     for c in cuadros:
         if isinstance(c, dict) and isinstance(c.get("f"), int) and isinstance(c.get("texts"), list):
-            if 0 <= c["f"] < n:  # las celdas de relleno no son cuadros
-                por_cuadro.setdefault(c["f"], c["texts"])
+            if 0 <= c["f"] < k:  # las celdas de relleno no son cuadros
+                salida.setdefault(c["f"], c["texts"])
+    return salida
 
+
+def unir_cuadros(crudo: str, n: int, cada: float, duracion: float) -> list[TextoVisto]:
+    """La lista por cuadro del modelo (una sola imagen) -> textos con su tramo, posición e idioma."""
+    return armar_tramos(por_cuadro(crudo, n), n, cada, duracion)
+
+
+def armar_tramos(por_cuadro: dict[int, list], n: int, cada: float, duracion: float) -> list[TextoVisto]:
+    """{cuadro: textos} de todo el video -> textos con su tramo de tiempo, posición e idioma."""
     tramos: list[_Tramo] = []
     for f in range(n):
         for x in por_cuadro.get(f, [])[:MAX_POR_CUADRO]:
@@ -231,34 +277,23 @@ def unir_cuadros(crudo: str, n: int, cada: float, duracion: float) -> list[Texto
     return salida
 
 
-async def leer_groq(
-    imagenes: list[bytes],
-    n: int,
-    cada: float,
-    duracion: float,
-    cfg: Config,
-    cliente: httpx.AsyncClient,
-    intentos: int = 3,
-) -> list[TextoVisto]:
-    aviso = (
-        f"The video has {n} frames, numbered 0 to {n - 1}, one every {cada:.1f} s, in {len(imagenes)} "
-        f"image(s) of up to {POR_LADO * POR_LADO}. Return exactly {n} entries."
-    )
-    contenido: list[dict] = [{"type": "text", "text": aviso}]
-    for img in imagenes:
-        contenido.append(
-            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64.b64encode(img).decode()}"}}
-        )
+async def _leer_imagen(img: bytes, k: int, cada: float, cfg: Config, cliente: httpx.AsyncClient, intentos: int):
+    """Una grilla con k cuadros -> {cuadro: textos crudos} (cuadros de esta imagen, desde 0)."""
+    aviso = f"The image has {k} frames, numbered 0 to {k - 1}, one every {cada:.1f} s. Return exactly {k} entries."
+    imagen = {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64.b64encode(img).decode()}"}}
     cuerpo = {
         "model": cfg.modelo_groq_vision,
-        "messages": [{"role": "system", "content": SISTEMA}, {"role": "user", "content": contenido}],
+        "messages": [
+            {"role": "system", "content": SISTEMA},
+            {"role": "user", "content": [{"type": "text", "text": aviso}, imagen]},
+        ],
         "response_format": {
             "type": "json_schema",
             "json_schema": {"name": "textos", "strict": True, "schema": ESQUEMA},
         },
         "reasoning_effort": "none",
         "temperature": 0,
-        "max_completion_tokens": 2500,
+        "max_completion_tokens": 1500,
     }
     for intento in range(1, intentos + 1):
         try:
@@ -279,17 +314,53 @@ async def leer_groq(
             log.warning("groq visión %s %s (intento %d)", resp.status_code, _codigo_error(resp), intento)
             continue
         try:
-            return unir_cuadros(resp.json()["choices"][0]["message"]["content"] or "", n, cada, duracion)
+            return por_cuadro(resp.json()["choices"][0]["message"]["content"] or "", k)
         except (SalidaInvalida, ValueError, KeyError, IndexError, TypeError) as e:
             log.warning("groq visión: salida inválida (intento %d): %s", intento, type(e).__name__)
     raise error("interno", http=502, devolver_cupo=True)
 
 
+async def leer_groq(
+    imagenes: list[bytes],
+    n: int,
+    cada: float,
+    duracion: float,
+    cfg: Config,
+    cliente: httpx.AsyncClient,
+    por_imagen: int = VERTICAL.por_imagen,
+    intentos: int = 3,
+) -> list[TextoVisto]:
+    """Un pedido por imagen, en paralelo. Si falla alguna, se usan las otras; si fallan todas, error."""
+    tareas = []
+    for i, img in enumerate(imagenes):
+        if (k := min(por_imagen, n - i * por_imagen)) > 0:
+            tareas.append(_leer_imagen(img, k, cada, cfg, cliente, intentos))
+    resultados = await asyncio.gather(*tareas, return_exceptions=True)
+    cuadros: dict[int, list] = {}
+    fallas: list[BaseException] = []
+    for i, r in enumerate(resultados):
+        if isinstance(r, BaseException):
+            if not isinstance(r, Exception):
+                raise r  # cancelación: no se traga
+            fallas.append(r)
+            continue
+        cuadros.update({i * por_imagen + f: textos for f, textos in r.items()})
+    if fallas:
+        log.warning("groq visión: fallaron %d de %d imágenes", len(fallas), len(resultados))
+        if len(fallas) == len(resultados):
+            e = fallas[0]
+            raise e if isinstance(e, PesError) else error("interno", http=502, devolver_cupo=True)
+    return armar_tramos(cuadros, n, cada, duracion)
+
+
 async def leer(video: Path, duracion: float, *, cfg: Config, cliente: httpx.AsyncClient) -> list[TextoVisto]:
     """Grillas en una carpeta temporal propia (el video puede ser un archivo local del CLI)."""
     with tempfile.TemporaryDirectory(prefix="pes-texto-") as tmp:
-        rutas, n, cada = await asyncio.to_thread(grillas, video, Path(tmp), duracion, cfg.texto_cuadros)
-        imagenes = [await asyncio.to_thread(r.read_bytes) for r in rutas]
-    vistos = await leer_groq(imagenes, n, cada, duracion, cfg, cliente)
-    log.info("texto: %d cuadros, %d textos, %d en inglés", n, len(vistos), sum(v.en for v in vistos))
+        g = await asyncio.to_thread(grillas, video, Path(tmp), duracion, cfg.texto_cuadros)
+        imagenes = [await asyncio.to_thread(r.read_bytes) for r in g.imagenes]
+    vistos = await leer_groq(imagenes, g.n, g.cada, duracion, cfg, cliente, por_imagen=g.por_imagen)
+    log.info(
+        "texto: %d cuadros (%d por imagen), %d textos, %d en inglés",
+        g.n, g.por_imagen, len(vistos), sum(v.en for v in vistos),
+    )  # fmt: skip
     return vistos
