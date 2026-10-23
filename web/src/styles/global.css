@@ -311,6 +311,28 @@ details p { margin-top: 8px; color: var(--muted); }
   box-decoration-break: clone;
 }
 .subs.arriba { bottom: auto; top: 9%; }
+/* traducción del texto escrito sobre el video: en el lugar del original, como un sticker */
+.escrito { position: absolute; inset: 0; pointer-events: none; }
+.escrito span {
+  position: absolute;
+  left: 6%;
+  right: 6%;
+  width: fit-content;
+  margin-inline: auto;
+  padding: 3px 9px 5px;
+  font: 400 clamp(16px, 4.6vw, 21px)/1.25 var(--disp);
+  color: #111;
+  text-align: center;
+  text-wrap: balance;
+  white-space: pre-line;
+  background: var(--yel);
+  border: 2px solid #111;
+  border-radius: 5px;
+}
+.escrito .top { top: 9%; }
+.escrito .mid { top: 50%; translate: 0 -50%; }
+.escrito .bot { bottom: 8%; }
+.subs.apagada, .escrito.apagada { display: none; }
 .mover {
   position: absolute;
   top: 10px;
@@ -384,6 +406,36 @@ details p { margin-top: 8px; color: var(--muted); }
   cursor: pointer;
 }
 .avance div { height: 6px; width: 0; background: var(--yel); }
+.pistas { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; font-size: 14px; color: var(--muted); }
+.pistas button {
+  min-height: 44px;
+  padding: 0 14px;
+  font: 700 14px var(--text);
+  color: var(--muted);
+  text-decoration: line-through;
+  background: var(--paper);
+  border: 2px solid var(--ink);
+  border-radius: 4px;
+  box-shadow: 2px 2px 0 var(--ink);
+  cursor: pointer;
+}
+.pistas button[aria-pressed='true'] { color: #111; text-decoration: none; background: var(--yel); }
+.pistas button[aria-pressed='true']::before { content: '✓ '; }
+.caption { padding: 12px 14px; font-size: 16px; background: var(--paper); border: 2px solid var(--ink); border-radius: 6px; }
+.caption p { margin: 0; overflow-wrap: anywhere; }
+.caption .caption-de { margin-bottom: 4px; font-size: 13px; font-weight: 700; color: var(--muted); }
+.lista ol { margin: 10px 0 0; padding: 0; list-style: none; display: grid; gap: 8px; }
+.lista li { display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: center; overflow-wrap: anywhere; }
+.lista .tiempo {
+  min-width: 52px;
+  min-height: 44px;
+  font: 400 13px var(--disp);
+  color: #111;
+  background: var(--yel);
+  border: 2px solid var(--ink);
+  border-radius: 4px;
+  cursor: pointer;
+}
 .credito { font-size: 14px; color: var(--muted); text-align: center; text-wrap: balance; }
 .credito a { color: var(--ink); }
 .acciones { display: grid; gap: 10px; }

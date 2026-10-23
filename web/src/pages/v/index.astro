@@ -22,6 +22,11 @@ import Marca from '../../components/Marca.astro';
     <div id="marco" class="marco">
       <video id="video" playsinline preload="metadata"></video>
       <div id="subs" class="subs" aria-hidden="true"><span id="sub" hidden></span></div>
+      <div id="escrito" class="escrito" aria-hidden="true">
+        <span id="escrito-top" class="top" hidden></span>
+        <span id="escrito-mid" class="mid" hidden></span>
+        <span id="escrito-bot" class="bot" hidden></span>
+      </div>
       <button id="mover" class="mover" type="button" aria-label="Mover los subtítulos arriba o abajo">↕ Subtítulos</button>
       <button id="grande" class="grande" type="button" aria-label="Ver en pantalla grande">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"></path></svg>
@@ -32,7 +37,20 @@ import Marca from '../../components/Marca.astro';
       </button>
       <div id="avance" class="avance" role="slider" aria-label="Avance del video" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" tabindex="0"><div id="barra"></div></div>
     </div>
+    <div id="pistas" class="pistas" hidden>
+      <span>Mostrar</span>
+      <button id="pista-voz" type="button" aria-pressed="true">Voz</button>
+      <button id="pista-texto" type="button" aria-pressed="true">Texto escrito</button>
+    </div>
     <p class="credito"><span id="credito"></span> · Subtítulos automáticos: pueden pifiar.</p>
+    <div id="caption" class="caption" hidden>
+      <p id="caption-de" class="caption-de"></p>
+      <p id="caption-texto"></p>
+    </div>
+    <details id="lista-texto" class="lista" hidden>
+      <summary>Todo lo que dice el texto del video</summary>
+      <ol id="lista-texto-items"></ol>
+    </details>
     <div class="acciones">
       <a id="whatsapp" class="cta wa" href="https://wa.me/">Mandar por WhatsApp</a>
       <p class="ganchito">Seguro conocés a otro que tampoco sabe.</p>

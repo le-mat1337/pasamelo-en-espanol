@@ -58,6 +58,9 @@ class Config:
     limite_job_s: int = 270  # por debajo de los 300 s por defecto de una función de Vercel
     demo: bool = False  # solo desarrollo: subtítulos de prueba, sin Groq
     hosts_turnstile: tuple[str, ...] = field(default_factory=tuple)
+    texto: bool = True  # leer el texto escrito sobre el video cuando es una canción o no habla nadie
+    modelo_groq_vision: str = "qwen/qwen3.8-27b"
+    texto_cuadros: int = 18  # cuadros por video para leer el texto (9 por imagen, hasta 3 imágenes)
 
     @property
     def produccion(self) -> bool:
@@ -110,4 +113,7 @@ def cargar() -> Config:
         pausado=_bool("PES_PAUSADO"),
         demo=_bool("PES_DEMO") and os.environ.get("VERCEL_ENV", "development") == "development",
         hosts_turnstile=tuple(h.strip().lower() for h in hosts.split(",") if h.strip()),
+        texto=os.environ.get("PES_TEXTO", "").strip().lower() not in {"0", "false", "no", "off"},
+        modelo_groq_vision=os.environ.get("PES_MODELO_VISION", "qwen/qwen3.8-27b"),
+        texto_cuadros=max(1, min(27, _int("PES_TEXTO_CUADROS", 18))),
     )

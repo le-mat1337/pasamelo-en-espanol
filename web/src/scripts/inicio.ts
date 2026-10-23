@@ -13,7 +13,8 @@ declare global {
 }
 
 const CLAVE_SESION = 'pes:job';
-const ETAPAS = ['descargando', 'escuchando', 'traduciendo', 'guardando'];
+// 'leyendo' (el texto escrito sobre el video) solo pasa en canciones y videos sin voz: aparece cuando llega.
+const ETAPAS = ['descargando', 'escuchando', 'traduciendo', 'leyendo', 'guardando'];
 
 const form = document.getElementById('form') as HTMLFormElement;
 const input = document.getElementById('link') as HTMLInputElement;
@@ -40,6 +41,7 @@ function mostrarError(mensaje: string | null): void {
 function avanzar(etapa: string): void {
   const i = ETAPAS.indexOf(etapa);
   if (i < 0) return;
+  if (etapa === 'leyendo') pasos[i].hidden = false;
   pasos.forEach((li, j) => {
     li.classList.toggle('hecho', j < i);
     li.classList.toggle('activo', j === i);
@@ -62,7 +64,10 @@ function mostrarProgreso(): void {
   enviar.firstChild!.textContent = 'Traduciendo… ';
   if (!espera.hidden) return;
   espera.hidden = false;
-  pasos.forEach((li) => li.classList.remove('hecho', 'activo'));
+  pasos.forEach((li) => {
+    li.classList.remove('hecho', 'activo');
+    if (li.dataset.etapa === 'leyendo') li.hidden = true;
+  });
   avanzar('descargando');
 }
 

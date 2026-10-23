@@ -30,9 +30,13 @@ class Cue:
     ini: float
     fin: float
     texto: str
+    pos: str | None = None  # solo el texto escrito: top, mid o bot (dónde estaba el original)
 
     def a_dict(self) -> dict:
-        return {"s": round(self.ini, 2), "e": round(self.fin, 2), "t": self.texto}
+        d = {"s": round(self.ini, 2), "e": round(self.fin, 2), "t": self.texto}
+        if self.pos:
+            d["p"] = self.pos
+        return d
 
 
 def _unir(palabras: list[Palabra]) -> str:

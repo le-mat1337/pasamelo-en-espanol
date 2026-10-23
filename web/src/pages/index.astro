@@ -46,6 +46,7 @@ const minutos = Math.round(Number(import.meta.env.PUBLIC_MAX_DURACION_S || 180) 
         <li data-etapa="descargando">Bajando el video</li>
         <li data-etapa="escuchando">Escuchando lo que dicen</li>
         <li data-etapa="traduciendo">Traduciendo al mejor idioma</li>
+        <li data-etapa="leyendo" hidden>Leyendo lo que está escrito</li>
         <li data-etapa="guardando">Armando tu link</li>
       </ol>
       <p class="nota">Tarda menos de un minuto. Podés dejar esta pestaña abierta.</p>
@@ -86,6 +87,10 @@ const minutos = Math.round(Number(import.meta.env.PUBLIC_MAX_DURACION_S || 180) 
       <details>
         <summary>¿Por qué a veces no puede bajar un reel?</summary>
         <p>Si el reel es privado o Instagram se pone denso un rato, no lo puedo bajar. Con TikTok pasa mucho menos.</p>
+      </details>
+      <details>
+        <summary>¿Y si es una canción o nadie habla?</summary>
+        <p>Si es una canción o un video sin voz, también leo el texto que está escrito encima y te lo traduzco en el mismo lugar. Y si el que lo subió escribió algo en inglés en el posteo, te lo paso abajo del video.</p>
       </details>
       <details>
         <summary>¿Los subtítulos son perfectos?</summary>

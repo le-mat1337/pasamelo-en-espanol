@@ -1,6 +1,6 @@
 import pytest
 
-from pes.descarga import clasificar_error
+from pes.descarga import MAX_CAPTION, clasificar_error, limpiar_caption
 
 
 @pytest.mark.parametrize(
@@ -31,3 +31,24 @@ def test_clasificar(stderr, plataforma, codigo, devuelve):
     assert stderr not in e.mensaje  # nunca se filtra la salida de yt-dlp al usuario
     if codigo == "bloqueado":
         assert ("Instagram" if plataforma == "instagram" else "TikTok") in e.mensaje
+
+
+@pytest.mark.parametrize(
+    "crudo,limpio",
+    [
+        ("Wait for it 😂 #fyp #funny #dog", "Wait for it 😂"),
+        ("my dog\n\nhates   mondays #monday", "my dog hates mondays"),
+        ("#fyp #viral #parati", None),
+        ("two words", None),
+        (None, None),
+        (123, None),
+        ("<b>bold</b> text here‮", "bold text here"),
+    ],
+)
+def test_limpiar_caption(crudo, limpio):
+    assert limpiar_caption(crudo) == limpio
+
+
+def test_limpiar_caption_largo_se_corta_en_una_palabra():
+    texto = limpiar_caption("word " * 200)
+    assert texto.endswith("word…") and len(texto) <= MAX_CAPTION + 1

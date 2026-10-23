@@ -10,13 +10,15 @@ Hecho por [Mat · Fool Stack Dev](https://www.instagram.com/le.mat1337/) como pr
 link ──► validar (lista blanca) ──► Turnstile ──► cupos (3 por día por IP)
      ──► yt-dlp (H.264 ≤ 720p) ──► ffmpeg (audio 16 kHz) ──► Groq Whisper (inglés)
      ──► traducción a español rioplatense (JSON validado) ──► subtítulos cortos
+     ──► si es canción o nadie habla: grillas de cuadros ──► Groq visión ──► texto escrito traducido
      ──► video en Cloudflare R2 + subtítulos en Redis (24 h) ──► /v/<id>
 ```
 
-- **Frontend:** Astro estático (`web/`). Los subtítulos se dibujan encima del video, no con `<track>`: en iOS no se pueden estilar. Hay un botón para pasarlos arriba cuando el reel ya trae texto abajo, y otro de pantalla grande que agranda el marco entero para que los subtítulos sigan.
+- **Frontend:** Astro estático (`web/`). Los subtítulos se dibujan encima del video, no con `<track>`: en iOS no se pueden estilar. Hay un botón para pasarlos arriba cuando el reel ya trae texto abajo, y otro de pantalla grande que agranda el marco entero para que los subtítulos sigan. El texto escrito traducido va en el lugar del original, como un sticker, con botones para prender y apagar cada pista; abajo del video, la lista de todo el texto y el caption del posteo traducido.
 - **Backend:** FastAPI en Python 3.12 (`backend/`). Un pedido procesa el video en la misma request y va mandando el progreso en NDJSON; si el celu corta, el cliente sigue por `GET /api/jobs/<id>`.
 - **Todo en un proyecto de Vercel** con [Services](https://vercel.com/docs/services): `web` y `backend` en un solo deploy. Estado y cupos en Upstash Redis, videos en Cloudflare R2 (bucket privado, URLs firmadas que vencen con el job), captcha con Cloudflare Turnstile, transcripción y traducción con Groq (o Claude Haiku, elegible por variable de entorno). Un cron diario borra los videos vencidos.
-- **Traducción:** Whisper corta sus segmentos donde quiere, así que primero se arman frases completas (por fin de oración o pausa) y se traducen de a una, con esquema JSON estricto; si el modelo junta o corre frases, se reintenta. Después la traducción se reparte en subtítulos de hasta 64 caracteres.
+- **Traducción:** Whisper corta sus segmentos donde quiere, así que primero se arman frases completas (por fin de oración o pausa) y se traducen de a una, con esquema JSON estricto; si el modelo junta o corre frases, se reintenta. Después la traducción se reparte en subtítulos de hasta 64 caracteres. El caption del posteo va en la misma llamada.
+- **Texto escrito:** si el video es una canción (lo dice el traductor, o TikTok trae el nombre del tema), casi no habla nadie o no habla nadie, ffmpeg arma grillas de 3×3 cuadros (uno cada 2 s o más) y el modelo de visión de Groq lista el texto de cada cuadro. Los tramos de tiempo se arman en el backend, y se traduce solo lo que está en inglés. Whisper inventa frases sobre la música ("Thank you." de punta a punta): esos segmentos se descartan.
 
 ## Cuánto cuesta
 
@@ -32,7 +34,7 @@ El repo es público y cualquiera puede buscarle la vuelta; el objetivo es que ab
 4. **Caché:** el mismo video se procesa una vez; las repeticiones no gastan nada.
 5. **Entrada:** lista blanca exacta de hosts, solo `http(s)`, sin credenciales ni puertos, una regex por plataforma, links cortos resueltos a mano (3 saltos, cada uno vuelve a la lista blanca), cuerpo de 8 KB como máximo.
 6. **Subprocesos:** yt-dlp y ffmpeg con lista de argumentos (sin shell), `timeout`, carpeta temporal propia, entorno mínimo sin secretos, sin config ni caché de yt-dlp, archivo de salida verificado dentro de la carpeta. Nunca se usan cookies ni cuentas de Instagram o TikTok.
-7. **Contenido de terceros:** el texto del video es dato, no instrucciones: esquema JSON estricto, índices y largos validados, tags y caracteres de control filtrados, y el frontend lo pinta con `textContent`.
+7. **Contenido de terceros:** el texto del video (lo que se dice, lo que está escrito encima y el caption) es dato, no instrucciones: los prompts lo dicen, esquema JSON estricto, índices, cuadros y largos validados, tags, hashtags y caracteres de control filtrados, y el frontend lo pinta con `textContent`.
 8. **Frontend:** CSP estricta sin `unsafe-inline` (nada inline en el build), HSTS, `nosniff`, `X-Frame-Options: DENY`, COOP, Permissions-Policy, `/v/*` con `noindex`, IDs de 96 bits, sin listado de jobs.
 9. **Errores y datos:** mensajes fijos; nunca se devuelve stderr, stack traces ni nombres de variables; sin docs públicas de la API; los logs no tienen IP ni URLs firmadas.
 10. **Cron** solo con `Authorization: Bearer $CRON_SECRET` (comparación en tiempo constante).
@@ -90,4 +92,4 @@ MIT. Este proyecto no está afiliado a Meta, Instagram, ByteDance ni TikTok.
 
 ### English
 
-**pasameloenespañol.com** ("pass it to me in Spanish") takes an English Instagram Reel or TikTok link and returns a 24-hour link with Spanish subtitles. Free, no account. Astro + FastAPI on Vercel Services, Groq Whisper for transcription, an LLM for translation, Upstash Redis and Cloudflare R2 for storage, Cloudflare Turnstile and per-IP/global quotas to keep the cost at zero. MIT licensed.
+**pasameloenespañol.com** ("pass it to me in Spanish") takes an English Instagram Reel or TikTok link and returns a 24-hour link with Spanish subtitles. Free, no account. Astro + FastAPI on Vercel Services, Groq Whisper for transcription, an LLM for translation, a vision model for the text burned into song and silent videos, Upstash Redis and Cloudflare R2 for storage, Cloudflare Turnstile and per-IP/global quotas to keep the cost at zero. MIT licensed.

@@ -13,6 +13,8 @@ from pes.descarga import Descarga
 from pes.errores import error
 from pes.jobs import Deps
 from pes.storage import StoreMemoria
+from pes.texto import TextoVisto
+from pes.traduce import NINGUNO, Traduccion
 from pes.transcribe import Palabra, Segmento, Transcripcion
 from pes.urls import resolver
 
@@ -43,7 +45,9 @@ class VideosFalsos:
         return 0
 
 
-def _transcripcion(idioma="english"):
+def _transcripcion(idioma="english", voz=True):
+    if not voz:  # música: Whisper saca una o dos palabras sueltas
+        return Transcripcion(idioma, 3.0, [Segmento(0.0, 1.0, "Mmm.", [Palabra("Mmm.", 0.0, 1.0)])])
     palabras = [Palabra("Hello", 0.0, 0.4), Palabra("my", 0.5, 0.7), Palabra("friend.", 0.8, 1.2)]
     return Transcripcion(idioma, 3.0, [Segmento(0.0, 1.2, "Hello my friend.", palabras)])
 
@@ -53,7 +57,10 @@ def entorno(tmp_path, monkeypatch):
     reloj = Reloj()
     store = StoreMemoria(reloj)
     videos = VideosFalsos()
-    estado = {"idioma": "english", "error_descarga": None, "captcha_ok": True, "descargas": 0}
+    estado = {
+        "idioma": "english", "error_descarga": None, "captcha_ok": True, "descargas": 0,
+        "voz": True, "duracion": 3.0, "cancion": False, "track": False, "caption": None, "texto": [], "lecturas": 0,
+    }  # fmt: skip
 
     def descargar(ref, carpeta, max_mb, max_dur):
         estado["descargas"] += 1
@@ -63,13 +70,22 @@ def entorno(tmp_path, monkeypatch):
         audio = carpeta / "audio.mp3"
         video.write_bytes(b"v" * 100)
         audio.write_bytes(b"a" * 2000)
-        return Descarga(video, audio, 3.0, "alguien", 100)
+        return Descarga(
+            video, audio, estado["duracion"], "alguien", 100, caption=estado["caption"], cancion=estado["track"]
+        )
 
     async def transcribir(audio):
-        return _transcripcion(estado["idioma"])
+        return _transcripcion(estado["idioma"], estado["voz"])
 
-    async def traducir(textos):
-        return [f"ES {t}" for t in textos]
+    async def traducir(textos, tolerantes=NINGUNO):
+        # "[es] ..." hace de texto que ya estaba en castellano: vuelve igual
+        return Traduccion([t if t.startswith("[es]") else f"ES {t}" for t in textos], cancion=estado["cancion"])
+
+    async def leer_texto(video, duracion):
+        estado["lecturas"] += 1
+        if isinstance(estado["texto"], Exception):
+            raise estado["texto"]
+        return estado["texto"]
 
     async def verificar_humano(token, ip):
         if not estado["captcha_ok"]:
@@ -96,6 +112,7 @@ def entorno(tmp_path, monkeypatch):
         transcribir=transcribir,
         traducir=traducir,
         reloj=reloj,
+        leer_texto=leer_texto,
     )
     modulo_app.app.dependency_overrides[modulo_app.obtener_deps] = lambda: deps
     cliente = TestClient(modulo_app.app)
@@ -128,6 +145,7 @@ def test_camino_feliz(entorno):
     assert datos["cues"] and datos["cues"][0]["t"] == "ES Hello my friend."
     assert datos["video_url"].startswith("https://")
     assert "video_id" not in datos and "creado" not in datos  # solo campos públicos
+    assert datos["cancion"] is False and "texto" not in datos and "caption" not in datos
     assert "public" in job.headers["cache-control"]
     assert job.headers["x-content-type-options"] == "nosniff"
 
@@ -358,3 +376,109 @@ def test_logs_sin_urls_de_httpx():
     import logging
 
     assert logging.getLogger("httpx").getEffectiveLevel() >= logging.WARNING
+
+
+# --- Texto escrito sobre el video (canciones y videos sin voz) ---
+
+VISTOS = [
+    TextoVisto("POV: you finally get it", 0.0, 2.0, True, "top"),
+    TextoVisto("[es] ya estaba en castellano", 1.0, 3.0, True, "bot"),  # el modelo dudó: vuelve igual
+    TextoVisto("cuando te sale todo bien", 2.0, 3.0, False, "bot"),  # no es inglés: ni se traduce
+]
+
+
+def _datos(cliente, eventos):
+    return cliente.get(f"/api/jobs/{eventos[-1]['id']}").json()
+
+
+def test_sin_voz_con_texto_escrito(entorno):
+    cliente, _, estado, _ = entorno
+    estado.update(voz=False, texto=VISTOS, caption="look at this dog")
+    _, eventos = _pedir(cliente)
+    assert [e["etapa"] for e in eventos] == ["aceptado", "descargando", "escuchando", "leyendo", "guardando", "listo"]
+    datos = _datos(cliente, eventos)
+    assert datos["cues"] == []
+    assert datos["texto"] == [{"s": 0.0, "e": 2.0, "t": "ES POV: you finally get it", "p": "top"}]
+    assert datos["caption"] == "ES look at this dog"
+
+
+def test_sin_voz_ni_texto_en_ingles_es_sin_voz_y_gasta_cupo(entorno):
+    cliente, _, estado, _ = entorno
+    estado.update(voz=False, texto=VISTOS[2:])
+    for n in (1, 2, 3):
+        _, eventos = _pedir(cliente, n=n)
+        assert eventos[-1]["codigo"] == "sin_voz"
+    resp, _ = _pedir(cliente, n=4)
+    assert resp.status_code == 429
+
+
+def test_sin_voz_y_lectura_caida_devuelve_cupo(entorno):
+    cliente, _, estado, _ = entorno
+    estado.update(voz=False, texto=error("ocupado", http=503, devolver_cupo=True))
+    for _ in range(4):
+        _, eventos = _pedir(cliente)
+        assert eventos[-1]["codigo"] == "ocupado"
+
+
+def test_cancion_con_letra_lee_tambien_el_texto(entorno):
+    cliente, _, estado, _ = entorno
+    estado.update(cancion=True, texto=VISTOS)
+    _, eventos = _pedir(cliente)
+    etapas = [e["etapa"] for e in eventos]
+    assert etapas == ["aceptado", "descargando", "escuchando", "traduciendo", "leyendo", "guardando", "listo"]
+    datos = _datos(cliente, eventos)
+    assert datos["cues"][0]["t"] == "ES Hello my friend." and "p" not in datos["cues"][0]
+    assert [c["t"] for c in datos["texto"]] == ["ES POV: you finally get it"]
+    assert datos["cancion"] is True
+
+
+def test_cancion_con_nombre_en_tiktok_dispara_la_lectura(entorno):
+    cliente, _, estado, _ = entorno
+    estado.update(track=True, texto=VISTOS)
+    _, eventos = _pedir(cliente)
+    assert "leyendo" in [e["etapa"] for e in eventos]
+    assert _datos(cliente, eventos)["cancion"] is True
+
+
+def test_voz_normal_no_lee_y_traduce_el_caption(entorno):
+    cliente, _, estado, _ = entorno
+    estado.update(caption="my dog is the best", texto=VISTOS)
+    _, eventos = _pedir(cliente)
+    datos = _datos(cliente, eventos)
+    assert estado["lecturas"] == 0
+    assert datos["caption"] == "ES my dog is the best" and "texto" not in datos
+
+
+def test_caption_que_ya_estaba_en_castellano_no_se_muestra(entorno):
+    cliente, _, estado, _ = entorno
+    estado.update(caption="[es] mi perro es el mejor")
+    _, eventos = _pedir(cliente)
+    assert "caption" not in _datos(cliente, eventos)
+
+
+@pytest.mark.parametrize("falla", [RuntimeError("ffmpeg"), error("ocupado", http=503, devolver_cupo=True)])
+def test_lectura_rota_con_voz_sale_igual(entorno, falla):
+    cliente, _, estado, _ = entorno
+    estado.update(cancion=True, texto=falla)
+    _, eventos = _pedir(cliente)
+    assert eventos[-1]["etapa"] == "listo"
+    datos = _datos(cliente, eventos)
+    assert datos["cues"] and "texto" not in datos
+
+
+def test_texto_apagado(entorno):
+    cliente, deps, estado, _ = entorno
+    deps.cfg = dataclasses.replace(deps.cfg, texto=False)
+    estado.update(voz=False, texto=VISTOS)
+    _, eventos = _pedir(cliente)
+    assert eventos[-1]["codigo"] == "sin_voz" and estado["lecturas"] == 0
+
+
+def test_poca_voz_en_un_video_largo_lee_el_texto(entorno):
+    # 3 palabras en 30 s: un reel con música y una frase suelta
+    cliente, _, estado, _ = entorno
+    estado.update(duracion=30.0, texto=VISTOS)
+    _, eventos = _pedir(cliente)
+    datos = _datos(cliente, eventos)
+    assert estado["lecturas"] == 1
+    assert datos["cues"] and datos["texto"] and datos["cancion"] is False

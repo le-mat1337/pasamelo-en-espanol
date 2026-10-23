@@ -15,12 +15,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .config import Config
-from .cues import armar_cues, partir_para_traducir
+from .cues import Cue, armar_cues, partir_para_traducir
 from .descarga import Descarga
 from .errores import PesError, error
 from .limites import Reserva, liberar
 from .storage import Store, Videos
-from .traduce import Traductor
+from .texto import TextoVisto
+from .traduce import Traductor, limpiar
 from .transcribe import Transcripcion
 from .urls import VideoRef
 
@@ -31,7 +32,7 @@ CORTADO_S = 360  # un job "procesando" sin novedades hace 6 minutos se dio por m
 # La URL del video no se guarda: la arma la API al leer (en R2 es firmada y vence con el job).
 CAMPOS_PUBLICOS = (
     "id", "estado", "etapa", "plataforma", "original", "autor", "duracion",
-    "cues", "expira", "codigo", "mensaje",
+    "cues", "texto", "caption", "cancion", "expira", "codigo", "mensaje",
 )  # fmt: skip
 
 Emitir = Callable[[dict], None]
@@ -48,6 +49,8 @@ class Deps:
     transcribir: Callable[[Path], Awaitable[Transcripcion]]
     traducir: Traductor
     reloj: Callable[[], float] = field(default=time.time)
+    # (video, duración) -> texto escrito sobre el video. None: no se lee.
+    leer_texto: Callable[[Path, float], Awaitable[list[TextoVisto]]] | None = None
 
 
 def nuevo_id() -> str:
@@ -151,15 +154,44 @@ async def _pipeline(job: dict, ref: VideoRef, deps: Deps, carpeta: Path, emitir:
 
     await etapa("escuchando")
     transcripcion = await deps.transcribir(bajado.audio)
-    if transcripcion.cantidad_palabras < 3:
+    hay_voz = transcripcion.cantidad_palabras >= 3
+    puede_leer = cfg.texto and deps.leer_texto is not None
+    if not hay_voz and not puede_leer:
         raise error("sin_voz", http=422)
-    if not transcripcion.es_ingles:
+    if hay_voz and not transcripcion.es_ingles:
         raise error("no_ingles", http=422)
 
-    await etapa("traduciendo")
-    bloques = partir_para_traducir(transcripcion.segmentos)
-    traducidos = await deps.traducir([b.texto for b in bloques])
-    cues = armar_cues([(b.ini, b.fin, t) for b, t in zip(bloques, traducidos, strict=True)])
+    cues: list[Cue] = []
+    caption: str | None = None
+    cancion = bajado.cancion
+    if hay_voz:
+        await etapa("traduciendo")
+        bloques = partir_para_traducir(transcripcion.segmentos)
+        extra = [bajado.caption] if bajado.caption else []
+        tr = await deps.traducir(
+            [b.texto for b in bloques] + extra, tolerantes=frozenset(range(len(bloques), len(bloques) + len(extra)))
+        )
+        cues = armar_cues([(b.ini, b.fin, t) for b, t in zip(bloques, tr.textos[: len(bloques)], strict=True)])
+        if bajado.caption:
+            caption = _traducido(bajado.caption, tr.textos[-1])
+        cancion = cancion or tr.cancion
+
+    # Canción, video mudo o casi (menos de una palabra cada 2 s, como un reel con música y una
+    # frase suelta): el texto escrito encima suele ser lo que hay que entender.
+    poca_voz = transcripcion.cantidad_palabras < bajado.duracion / 2
+    texto: list[Cue] = []
+    if puede_leer and (not hay_voz or cancion or poca_voz):
+        await etapa("leyendo")
+        try:
+            texto, caption_leido = await _leer_texto(bajado, deps, con_caption=not hay_voz)
+            caption = caption or caption_leido
+        except Exception as e:  # noqa: BLE001 - con voz, el texto es un extra: el video sale igual
+            if not hay_voz:
+                raise
+            motivo = e.codigo if isinstance(e, PesError) else type(e).__name__
+            log.warning("job %s sale sin el texto escrito: %s", job["id"], motivo)
+    if not cues and not texto:
+        raise error("sin_voz", http=422)
 
     await etapa("guardando")
     video = await deps.videos.subir(bajado.video, job["id"])
@@ -168,11 +200,44 @@ async def _pipeline(job: dict, ref: VideoRef, deps: Deps, carpeta: Path, emitir:
         etapa="listo",
         video=video,
         cues=[c.a_dict() for c in cues],
+        cancion=cancion,
         autor=bajado.autor,
         duracion=round(bajado.duracion, 1),
         idioma=transcripcion.idioma,
         actualizado=deps.reloj(),
     )
+    if texto:
+        job["texto"] = [c.a_dict() for c in texto]
+    if caption:
+        job["caption"] = caption
     await guardar(store, job, deps.reloj())
     emitir({"etapa": "listo", "id": job["id"], "url": f"/v/{job['id']}"})
-    log.info("job listo id=%s %s %.1fs en %.0fs", job["id"], ref.clave, bajado.duracion, deps.reloj() - inicio)
+    log.info(
+        "job listo id=%s %s %.1fs en %.0fs (%d subtítulos, %d textos)",
+        job["id"], ref.clave, bajado.duracion, deps.reloj() - inicio, len(cues), len(texto),
+    )  # fmt: skip
+
+
+def _traducido(original: str, traducido: str) -> str | None:
+    """Un texto tolerante que volvió igual (ya estaba en castellano, era un nombre) no se muestra."""
+    t = traducido.strip()
+    return t if t and t.casefold() != limpiar(original).casefold() else None
+
+
+async def _leer_texto(bajado: Descarga, deps: Deps, con_caption: bool) -> tuple[list[Cue], str | None]:
+    """Lee el texto escrito, traduce el que está en inglés (y el caption, si todavía no se tradujo)."""
+    if deps.leer_texto is None:
+        return [], None
+    vistos = [v for v in await deps.leer_texto(bajado.video, bajado.duracion) if v.en]
+    if not vistos:
+        return [], None
+    originales = [v.texto for v in vistos] + ([bajado.caption] if con_caption and bajado.caption else [])
+    tr = await deps.traducir(originales, tolerantes=frozenset(range(len(originales))))
+    cues: list[Cue] = []
+    for v, t in zip(vistos, tr.textos, strict=False):
+        if traducido := _traducido(v.texto, t):
+            cues.append(Cue(v.ini, v.fin, traducido, v.pos))
+    caption = None
+    if len(originales) > len(vistos):
+        caption = _traducido(originales[-1], tr.textos[-1])
+    return cues, caption

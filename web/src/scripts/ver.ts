@@ -1,4 +1,6 @@
 // Reproductor de /v/<id>: video 9:16 con los subtítulos dibujados encima (no ::cue: en iOS no se pueden estilar).
+// Dos pistas: lo que se dice (voz o letra) y, en canciones y videos sin voz, el texto escrito traducido
+// en el lugar del original.
 import { ErrorApi, NO_ENCONTRADO, RE_ID, esperarJob, leerJob, registrar, type Cue, type Job } from './api';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -22,6 +24,23 @@ const estado = $<HTMLDivElement>('estado');
 const estadoTitulo = $<HTMLHeadingElement>('estado-titulo');
 const estadoTexto = $<HTMLParagraphElement>('estado-texto');
 const estadoCta = $<HTMLAnchorElement>('estado-cta');
+const escrito = $<HTMLDivElement>('escrito');
+const pistas = $<HTMLDivElement>('pistas');
+const botonVoz = $<HTMLButtonElement>('pista-voz');
+const botonTexto = $<HTMLButtonElement>('pista-texto');
+const caption = $<HTMLDivElement>('caption');
+const captionDe = $<HTMLParagraphElement>('caption-de');
+const captionTexto = $<HTMLParagraphElement>('caption-texto');
+const lista = $<HTMLDetailsElement>('lista-texto');
+const listaItems = $<HTMLOListElement>('lista-texto-items');
+
+type Zona = 'top' | 'mid' | 'bot';
+const ZONAS: Zona[] = ['top', 'mid', 'bot'];
+const zonas: Record<Zona, HTMLSpanElement> = {
+  top: $<HTMLSpanElement>('escrito-top'),
+  mid: $<HTMLSpanElement>('escrito-mid'),
+  bot: $<HTMLSpanElement>('escrito-bot'),
+};
 
 const id = location.pathname.split('/').filter(Boolean)[1] ?? new URLSearchParams(location.search).get('id') ?? '';
 const linkPropio = `${location.origin}/v/${id}`;
@@ -36,8 +55,10 @@ function mostrarEstado(titulo: string, texto = '', cta = false): void {
 
 // --- subtítulos ---
 let cues: Cue[] = [];
+let textos: Cue[] = [];
 let actual = -1;
 let animacion = 0;
+const enZona: Record<Zona, string> = { top: '', mid: '', bot: '' };
 
 function buscarCue(t: number): number {
   let lo = 0;
@@ -58,10 +79,26 @@ function pintar(): void {
     sub.hidden = i < 0;
     sub.textContent = i < 0 ? '' : cues[i].t; // textContent: nunca HTML
   }
+  if (textos.length) pintarTexto(video.currentTime);
   if (video.duration) {
     const pct = (video.currentTime / video.duration) * 100;
     barra.style.width = `${pct}%`;
     avance.setAttribute('aria-valuenow', String(Math.round(pct)));
+  }
+}
+
+// El texto escrito puede tener varios a la vez (un título arriba y una frase abajo): uno por zona.
+function pintarTexto(t: number): void {
+  for (const z of ZONAS) {
+    const ahora = textos
+      .filter((c) => (c.p ?? 'mid') === z && t >= c.s && t < c.e)
+      .map((c) => c.t)
+      .join('\n');
+    if (ahora !== enZona[z]) {
+      enZona[z] = ahora;
+      zonas[z].hidden = !ahora;
+      zonas[z].textContent = ahora; // textContent: nunca HTML
+    }
   }
 }
 
@@ -97,16 +134,35 @@ function ponerArriba(si: boolean): void {
     /* sin almacenamiento */
   }
 }
-try {
-  if (localStorage.getItem(CLAVE_POSICION) === '1') subs.classList.add('arriba');
-} catch {
-  /* sin almacenamiento */
+// Con texto escrito traducido, la voz va donde menos lo tapa; si no, donde la dejó la persona.
+function arrancarArriba(): boolean {
+  if (textos.length) {
+    const tapado = (z: Zona) => textos.filter((c) => c.p === z).reduce((suma, c) => suma + c.e - c.s, 0);
+    return tapado('bot') > tapado('top');
+  }
+  try {
+    return localStorage.getItem(CLAVE_POSICION) === '1';
+  } catch {
+    return false;
+  }
 }
 mover.addEventListener('click', (ev) => {
   ev.stopPropagation();
   ponerArriba(!subs.classList.contains('arriba'));
   registrar('mover_subtitulos');
 });
+
+// Prender y apagar cada pista (solo se muestran los botones si hay las dos).
+function alternar(boton: HTMLButtonElement, capa: HTMLElement, pista: string): void {
+  boton.addEventListener('click', () => {
+    const si = boton.getAttribute('aria-pressed') !== 'true';
+    boton.setAttribute('aria-pressed', String(si));
+    capa.classList.toggle('apagada', !si);
+    registrar('pista', { [pista]: si ? 'on' : 'off' });
+  });
+}
+alternar(botonVoz, subs, 'voz');
+alternar(botonTexto, escrito, 'texto');
 
 // Pantalla grande: el marco entero, para que los subtítulos sigan. Si el navegador no deja
 // (iPhone viejo), se agranda con CSS a toda la pantalla.
@@ -197,8 +253,47 @@ function tiempoRestante(expiraSeg: number): string {
   return `Se borra en ${Math.round(min / 60)} h`;
 }
 
+function minutos(s: number): string {
+  return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+}
+
+function mostrarTexto(job: Job): void {
+  mover.hidden = !cues.length; // sin voz no hay subtítulos que mover
+  pistas.hidden = !(cues.length && textos.length);
+  botonVoz.textContent = job.cancion ? 'Letra' : 'Voz';
+  subs.classList.toggle('arriba', arrancarArriba());
+  if (textos.length) {
+    listaItems.replaceChildren(
+      ...textos.map((c) => {
+        const li = document.createElement('li');
+        const ir = document.createElement('button');
+        ir.type = 'button';
+        ir.className = 'tiempo';
+        ir.textContent = minutos(c.s);
+        ir.setAttribute('aria-label', `Ir al ${minutos(c.s)}`);
+        ir.addEventListener('click', () => {
+          video.currentTime = c.s;
+          pintar();
+        });
+        const texto = document.createElement('span');
+        texto.textContent = c.t;
+        li.append(ir, texto);
+        return li;
+      }),
+    );
+    lista.hidden = false;
+  }
+  if (job.caption) {
+    captionDe.textContent = job.autor ? `Lo que escribió ${job.autor} en el posteo:` : 'Lo que dice el posteo:';
+    captionTexto.textContent = job.caption;
+    caption.hidden = false;
+  }
+}
+
 function mostrarVideo(job: Job): void {
   cues = (job.cues ?? []).slice().sort((a, b) => a.s - b.s);
+  textos = (job.texto ?? []).slice().sort((a, b) => a.s - b.s);
+  mostrarTexto(job);
   video.src = job.video_url ?? '';
   const plataforma = job.plataforma === 'tiktok' ? 'TikTok' : 'Instagram';
   credito.textContent = '';

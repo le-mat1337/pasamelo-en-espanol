@@ -32,6 +32,7 @@ from pes.jobs import (
 )
 from pes.limites import fecha_local, hash_ip, ip_cliente, liberar, reservar, verificar_turnstile
 from pes.storage import VideosLocales, crear_store, crear_videos
+from pes.texto import leer as leer_texto
 from pes.traduce import crear_traductor
 from pes.transcribe import transcribir_groq
 from pes.urls import UA, resolver
@@ -75,6 +76,7 @@ def obtener_deps() -> Deps:
             descargar=descargar,
             transcribir=lambda audio: transcribir_groq(audio, cfg.groq_api_key, cfg.modelo_groq_whisper, cliente),
             traducir=crear_traductor(cfg, cliente),
+            leer_texto=partial(leer_texto, cfg=cfg, cliente=cliente),
         )
         if cfg.demo:
             from pes import demo
@@ -82,6 +84,7 @@ def obtener_deps() -> Deps:
             log.warning("MODO DEMO: subtítulos inventados, sin Groq")
             _DEPS.transcribir = demo.transcribir
             _DEPS.traducir = demo.traducir
+            _DEPS.leer_texto = demo.leer_texto
     return _DEPS
 
 

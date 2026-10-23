@@ -1,6 +1,7 @@
 // Tipos y ayudas compartidas entre el formulario y el reproductor.
 
-export type Cue = { s: number; e: number; t: string };
+// p: solo en el texto escrito sobre el video, dónde estaba el original.
+export type Cue = { s: number; e: number; t: string; p?: 'top' | 'mid' | 'bot' };
 
 export type Job = {
   id: string;
@@ -12,6 +13,9 @@ export type Job = {
   duracion?: number;
   video_url?: string;
   cues?: Cue[];
+  texto?: Cue[];
+  caption?: string;
+  cancion?: boolean;
   expira?: number;
   codigo?: string;
   mensaje?: string;

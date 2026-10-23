@@ -92,3 +92,8 @@ def test_vtt():
     assert vtt.startswith("WEBVTT")
     assert "00:00:01.500 --> 00:00:03.250" in vtt
     assert "Hola → che" in vtt
+
+
+def test_cue_con_posicion_solo_para_el_texto_escrito():
+    assert Cue(0.0, 1.234, "Hola").a_dict() == {"s": 0.0, "e": 1.23, "t": "Hola"}
+    assert Cue(0.0, 2.0, "POV: vos", "top").a_dict() == {"s": 0.0, "e": 2.0, "t": "POV: vos", "p": "top"}

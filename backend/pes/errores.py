@@ -35,7 +35,7 @@ MENSAJES: dict[str, str] = {
     "ig_vacio": "Instagram se puso denso y no me deja bajar ese reel. Probá en un rato o con un TikTok.",
     "muy_largo": "Ese video es muy largo, che. Eso ya es una película.",
     "muy_pesado": "Ese video pesa demasiado. Probá con uno más corto.",
-    "sin_voz": "Ahí no habla nadie. ¿Qué querés que traduzca, la música?",
+    "sin_voz": "Ahí no habla nadie ni hay nada escrito en inglés. ¿Qué querés que traduzca, la música?",
     "no_ingles": "Ese video no está en inglés. Por ahora solo traduzco del inglés.",
     "traduccion": "No entendí nada, soy de Boca. Probá de nuevo en un rato.",
     "ocupado": "Hay cola. Probá en un minuto.",

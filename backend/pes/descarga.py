@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .errores import PesError, error
+from .traduce import limpiar
 from .urls import VideoRef
 
 # H.264 primero (se ve en cualquier celular), sin la versión con marca de agua de TikTok.
@@ -35,6 +36,11 @@ FORMATO = (
 RE_DURACION = re.compile(r"Duration: (\d+):(\d{2}):(\d{2}(?:\.\d+)?)")
 
 
+MAX_CAPTION = 300
+RE_HASHTAG = re.compile(r"(?<![\w#])#\w+")
+RE_PALABRA = re.compile(r"[^\W\d_]+")
+
+
 @dataclass(frozen=True)
 class Descarga:
     video: Path
@@ -42,6 +48,18 @@ class Descarga:
     duracion: float
     autor: str | None
     bytes: int
+    caption: str | None = None  # lo que el autor escribió en el posteo, ya limpio
+    cancion: bool = False  # TikTok dice que suena una canción con nombre (no "original sound")
+
+
+def limpiar_caption(texto: object) -> str | None:
+    """El texto del posteo sin hashtags, en una línea y recortado. None si no queda una frase."""
+    if not isinstance(texto, str):
+        return None
+    texto = limpiar(RE_HASHTAG.sub(" ", texto))
+    if len(texto) > MAX_CAPTION:
+        texto = texto[:MAX_CAPTION].rsplit(" ", 1)[0].rstrip(" ,;:-—") + "…"
+    return texto if len(RE_PALABRA.findall(texto)) >= 3 else None
 
 
 _FFMPEG: str | None = None
@@ -140,7 +158,7 @@ def bajar_video(ref: VideoRef, carpeta: Path, max_mb: int, max_dur: int, timeout
         "--ffmpeg-location", ffmpeg(),
         "-f", FORMATO, "-S", "res:720", "--merge-output-format", "mp4",
         "-o", str(carpeta / "video.%(ext)s"),
-        "--no-simulate", "-O", "after_move:%(.{id,duration,uploader,channel,filepath})j",
+        "--no-simulate", "-O", "after_move:%(.{id,duration,uploader,channel,filepath,description,track})j",
         "--", ref.url,
     ]  # fmt: skip
     try:
@@ -229,4 +247,6 @@ def descargar(ref: VideoRef, carpeta: Path, max_mb: int, max_dur: int) -> Descar
         duracion=duracion,
         autor=str(autor)[:80] if autor else None,
         bytes=video.stat().st_size,
+        caption=limpiar_caption(info.get("description")),
+        cancion=bool(info.get("track")),
     )

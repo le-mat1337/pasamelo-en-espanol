@@ -64,8 +64,18 @@ def _palabras(crudas: list[dict]) -> list[Palabra]:
     return salida
 
 
+def alucinado(ini: float, fin: float, texto: str, duracion_audio: float) -> bool:
+    """Whisper inventa frases sobre música ("Thank you." de punta a punta del video) y en Groq
+    no_speech_prob viene en 0. Nadie habla así: 2 palabras en 30 s, o después de que termina el audio."""
+    if duracion_audio and ini >= duracion_audio - 0.05:
+        return True
+    dur = fin - ini
+    return dur > 6 and len(texto.split()) / dur < 0.25
+
+
 def normalizar(j: dict) -> Transcripcion:
     segmentos: list[Segmento] = []
+    duracion_audio = float(j.get("duration") or 0.0)
     for s in j.get("segments") or []:
         texto = " ".join(str(s.get("text") or "").split())
         if not texto:
@@ -77,7 +87,7 @@ def normalizar(j: dict) -> Transcripcion:
         # Whisper "alucina" frases sobre música: si dice que no hay voz y además duda, se descarta.
         sin_voz = float(s.get("no_speech_prob") or 0.0)
         confianza = float(s.get("avg_logprob") or 0.0)
-        if sin_voz > 0.8 and confianza < -0.7:
+        if (sin_voz > 0.8 and confianza < -0.7) or alucinado(ini, fin, texto, duracion_audio):
             continue
         segmentos.append(Segmento(ini, max(fin, ini + 0.2), texto, _palabras(s.get("words") or [])))
 

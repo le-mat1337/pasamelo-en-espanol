@@ -13,8 +13,8 @@ pytestmark = pytest.mark.anyio
 ORIG = ["Hello my friend.", "This is crazy.", "Look at that!"]
 
 
-def _salida(textos):
-    return json.dumps({"items": [{"i": i, "t": t} for i, t in enumerate(textos)]})
+def _salida(textos, cancion=False):
+    return json.dumps({"items": [{"i": i, "t": t} for i, t in enumerate(textos)], "cancion": cancion})
 
 
 def test_entrada_es_json_con_indices():
@@ -23,11 +23,11 @@ def test_entrada_es_json_con_indices():
 
 
 def test_validar_ok():
-    assert validar(_salida(["Hola, amigo.", "Esto es una locura.", "¡Mirá eso!"]), ORIG)[2] == "¡Mirá eso!"
+    assert validar(_salida(["Hola, amigo.", "Esto es una locura.", "¡Mirá eso!"]), ORIG).textos[2] == "¡Mirá eso!"
 
 
 def test_validar_limpia_markup_y_control():
-    salida = validar(_salida(["<b>Hola</b>‮ amigo", '"Esto es una locura."', "¡Mirá eso!"]), ORIG)
+    salida = validar(_salida(["<b>Hola</b>‮ amigo", '"Esto es una locura."', "¡Mirá eso!"]), ORIG).textos
     assert salida[0] == "Hola amigo"
     assert salida[1] == "Esto es una locura."
 
@@ -38,7 +38,7 @@ def test_validar_un_bloque_malo_queda_en_ingles():
         validar(crudo, ORIG)
     largos = ORIG + ["a", "b", "c", "d"]
     crudo = _salida(["Hola", "Locura", "Mirá", "a", "b", "c", "x" * 500])
-    assert validar(crudo, largos)[6] == "d"
+    assert validar(crudo, largos).textos[6] == "d"
 
 
 def test_validar_indices_faltantes():
@@ -67,13 +67,14 @@ async def test_groq_reintenta_una_vez_y_valida():
         cuerpo = json.loads(request.content)
         llamadas.append(cuerpo)
         assert cuerpo["response_format"]["json_schema"]["strict"] is True
+        assert "cancion" in cuerpo["response_format"]["json_schema"]["schema"]["required"]
         assert request.headers["authorization"] == "Bearer gsk_test"
         contenido = "basura" if len(llamadas) == 1 else _salida(["Hola, amigo.", "Una locura.", "¡Mirá!"])
         return httpx.Response(200, json={"choices": [{"message": {"content": contenido}}]})
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as cliente:
         traducir = traductor_groq(_cfg(), cliente)
-        assert await traducir(ORIG) == ["Hola, amigo.", "Una locura.", "¡Mirá!"]
+        assert (await traducir(ORIG)).textos == ["Hola, amigo.", "Una locura.", "¡Mirá!"]
     assert len(llamadas) == 2
 
 
@@ -114,7 +115,7 @@ async def test_groq_json_validate_failed_se_reintenta(esperas):
         return httpx.Response(200, json={"choices": [{"message": {"content": _salida(["Hola", "Locura", "Mirá"])}}]})
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as cliente:
-        assert await traductor_groq(_cfg(), cliente)(ORIG) == ["Hola", "Locura", "Mirá"]
+        assert (await traductor_groq(_cfg(), cliente)(ORIG)).textos == ["Hola", "Locura", "Mirá"]
     assert len(llamadas) == 3
 
 
@@ -128,7 +129,7 @@ async def test_groq_429_corto_espera_y_sigue(esperas):
         return httpx.Response(200, json={"choices": [{"message": {"content": _salida(["Hola", "Locura", "Mirá"])}}]})
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as cliente:
-        assert await traductor_groq(_cfg(), cliente)(ORIG) == ["Hola", "Locura", "Mirá"]
+        assert (await traductor_groq(_cfg(), cliente)(ORIG)).textos == ["Hola", "Locura", "Mirá"]
     assert esperas == [7.0]
 
 
@@ -153,8 +154,31 @@ def test_validar_bloque_sin_traducir_cuenta_como_malo():
     originales = ["one two three", "four five six", "seven eight nine", "ten eleven twelve"]
     salida = validar(
         _salida(["uno dos tres", "cuatro cinco seis", "siete ocho nueve", "ten eleven twelve"]), originales
-    )
+    ).textos
     assert salida[3] == "ten eleven twelve"  # 1 de 4 queda en inglés: se acepta
     with pytest.raises(SalidaInvalida):  # 2 de 4 sin traducir: se reintenta
         validar(_salida(["uno dos tres", "four five six", "siete ocho nueve", "ten eleven twelve"]), originales)
-    assert validar(_salida(["OK", "Jett", "Che"]), ["OK", "Jett", "Che"]) == ["OK", "Jett", "Che"]  # nombres cortos
+    assert validar(_salida(["OK", "Jett", "Che"]), ["OK", "Jett", "Che"]).textos == ["OK", "Jett", "Che"]  # nombres
+
+
+def test_validar_lee_cancion():
+    assert validar(_salida(["Hola", "Locura", "Mirá"], cancion=True), ORIG).cancion is True
+    assert validar(_salida(["Hola", "Locura", "Mirá"]), ORIG).cancion is False
+    assert (
+        validar(json.dumps({"items": json.loads(_salida(["Hola", "Locura", "Mirá"]))["items"]}), ORIG).cancion is False
+    )
+
+
+def test_validar_tolerantes_no_cuentan_como_malos():
+    # El caption (último) ya estaba en castellano y vuelve igual: no es un error
+    originales = ["one two three", "four five six", "esto ya está en castellano"]
+    salida = validar(_salida(["uno dos tres", "cuatro cinco seis", "esto ya está en castellano"]), originales,
+                     tolerantes=frozenset({2}))  # fmt: skip
+    assert salida.textos[2] == "esto ya está en castellano"
+    # Texto escrito: todos tolerantes, ninguno traducido ni válido, igual no falla
+    vistos = ["POV: me and the boys", "this one goes hard", "x"]
+    salida = validar(_salida(vistos[:2] + ["x" * 500]), vistos, tolerantes=frozenset(range(3)))
+    assert salida.textos == vistos
+    # Los que no son tolerantes siguen contando
+    with pytest.raises(SalidaInvalida):
+        validar(_salida(["one two three", "four five six", "hola"]), originales, tolerantes=frozenset({2}))

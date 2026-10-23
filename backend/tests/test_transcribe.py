@@ -45,6 +45,27 @@ def test_normalizar_whisper_local():
     assert t.duracion == 1.0
 
 
+def test_normalizar_descarta_alucinaciones_sobre_musica():
+    # Lo que devolvió Groq para 30 s de un tono sin voz: no_speech_prob en 0 y confianza alta
+    t = normalizar(
+        {
+            "language": "English",
+            "duration": 30.0,
+            "segments": [
+                {"start": 0, "end": 29.98, "text": " Thank you.", "no_speech_prob": 0, "avg_logprob": -0.19},
+                {"start": 30, "end": 59.98, "text": " Thank you.", "no_speech_prob": 0, "avg_logprob": -0.65},
+            ],
+        }
+    )
+    assert t.segmentos == [] and t.cantidad_palabras == 0
+    # Una frase corta de verdad, o una larga con voz, quedan
+    assert (
+        len(normalizar({"duration": 30.0, "segments": [{"start": 3, "end": 4, "text": "Thank you."}]}).segmentos) == 1
+    )
+    hablado = {"start": 0, "end": 10, "text": "one two three four five six seven eight nine ten eleven"}
+    assert len(normalizar({"duration": 30.0, "segments": [hablado]}).segmentos) == 1
+
+
 def test_no_ingles():
     assert not normalizar({"language": "spanish", "segments": []}).es_ingles
 
