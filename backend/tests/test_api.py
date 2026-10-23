@@ -45,6 +45,32 @@ class VideosFalsos:
         return 0
 
 
+class AlertasFalsas:
+    """Anota cada aviso al pedirlo (las de la API van en segundo plano)."""
+
+    activas = True
+
+    def __init__(self):
+        self.llamadas = []
+
+    def _anotar(self, *datos):
+        self.llamadas.append(datos)
+
+        async def nada():
+            return None
+
+        return nada()
+
+    def error_nuestro(self, codigo, plataforma):
+        return self._anotar("error", codigo, plataforma)
+
+    def cupo_lleno(self, codigo):
+        return self._anotar("cupo", codigo)
+
+    def falta_config(self, faltan):
+        return self._anotar("config", tuple(faltan))
+
+
 def _transcripcion(idioma="english", voz=True):
     if not voz:  # música: Whisper saca una o dos palabras sueltas
         return Transcripcion(idioma, 3.0, [Segmento(0.0, 1.0, "Mmm.", [Palabra("Mmm.", 0.0, 1.0)])])
@@ -113,6 +139,7 @@ def entorno(tmp_path, monkeypatch):
         traducir=traducir,
         reloj=reloj,
         leer_texto=leer_texto,
+        alertas=AlertasFalsas(),
     )
     modulo_app.app.dependency_overrides[modulo_app.obtener_deps] = lambda: deps
     cliente = TestClient(modulo_app.app)
@@ -283,6 +310,7 @@ def test_produccion_sin_config_no_procesa(entorno):
     resp, _ = _pedir(cliente)
     assert resp.status_code == 503 and resp.json()["codigo"] == "config"
     assert "TURNSTILE" not in resp.text
+    assert deps.alertas.llamadas == [("config", ("TURNSTILE_SECRET_KEY",))]
 
 
 def test_job_inexistente_y_id_raro(entorno):
@@ -325,7 +353,8 @@ def test_cron_necesita_secreto(entorno):
 def test_salud_no_revela_secretos(entorno):
     cliente, *_ = entorno
     datos = cliente.get("/api/salud").json()
-    assert set(datos) == {"ok", "pausado", "configurado"}
+    assert set(datos) == {"ok", "pausado", "configurado", "alertas"}
+    assert datos["alertas"] is True and "token" not in json.dumps(datos).lower()
 
 
 def test_sin_docs_publicas(entorno):
@@ -482,3 +511,32 @@ def test_poca_voz_en_un_video_largo_lee_el_texto(entorno):
     datos = _datos(cliente, eventos)
     assert estado["lecturas"] == 1
     assert datos["cues"] and datos["texto"] and datos["cancion"] is False
+
+
+# --- Alertas al celu ---
+
+
+def test_error_nuestro_pide_alerta_y_el_del_usuario_no(entorno):
+    cliente, deps, estado, _ = entorno
+    estado["error_descarga"] = error("bloqueado", http=503, devolver_cupo=True)
+    _pedir(cliente)
+    estado["error_descarga"] = None
+    estado["idioma"] = "spanish"
+    _pedir(cliente, n=2)  # no_ingles: culpa del video, no nuestra
+    assert deps.alertas.llamadas == [("error", "bloqueado", "instagram")]
+
+
+def test_cupo_global_lleno_pide_alerta(entorno):
+    cliente, deps, *_ = entorno
+    deps.cfg = dataclasses.replace(deps.cfg, max_jobs_dia=1)
+    _pedir(cliente, n=1, ip="200.1.1.1")
+    resp, _ = _pedir(cliente, n=2, ip="200.2.2.2")
+    assert resp.status_code == 429 and resp.json()["codigo"] == "cupo_global"
+    assert deps.alertas.llamadas == [("cupo", "cupo_global")]
+
+
+def test_cupo_por_ip_no_pide_alerta(entorno):
+    cliente, deps, *_ = entorno
+    for n in range(1, 5):
+        _pedir(cliente, n=n)
+    assert deps.alertas.llamadas == []

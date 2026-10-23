@@ -61,6 +61,10 @@ class Config:
     texto: bool = True  # leer el texto escrito sobre el video cuando es una canción o no habla nadie
     modelo_groq_vision: str = "qwen/qwen3.8-27b"
     texto_cuadros: int = 18  # cuadros por video para leer el texto (9 o 6 por imagen, hasta 3 imágenes)
+    # Alertas al celu (opcionales): Telegram y/o ntfy. Ver pes/alertas.py.
+    telegram_token: str = ""
+    telegram_chat: str = ""
+    ntfy_tema: str = ""
 
     @property
     def produccion(self) -> bool:
@@ -116,4 +120,7 @@ def cargar() -> Config:
         texto=os.environ.get("PES_TEXTO", "").strip().lower() not in {"0", "false", "no", "off"},
         modelo_groq_vision=os.environ.get("PES_MODELO_VISION", "qwen/qwen3.8-27b"),
         texto_cuadros=max(1, min(27, _int("PES_TEXTO_CUADROS", 18))),
+        telegram_token=os.environ.get("PES_TELEGRAM_TOKEN", "").strip(),
+        telegram_chat=os.environ.get("PES_TELEGRAM_CHAT", "").strip(),
+        ntfy_tema=os.environ.get("PES_NTFY_TEMA", "").strip(),
     )

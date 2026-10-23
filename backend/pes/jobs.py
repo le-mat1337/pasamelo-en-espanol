@@ -14,6 +14,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .alertas import Alertas
 from .config import Config
 from .cues import Cue, armar_cues, partir_para_traducir
 from .descarga import Descarga
@@ -51,6 +52,7 @@ class Deps:
     reloj: Callable[[], float] = field(default=time.time)
     # (video, duración) -> texto escrito sobre el video. None: no se lee.
     leer_texto: Callable[[Path, float], Awaitable[list[TextoVisto]]] | None = None
+    alertas: Alertas | None = None
 
 
 def nuevo_id() -> str:
@@ -107,6 +109,7 @@ async def procesar(job: dict, ref: VideoRef, reserva: Reserva, deps: Deps, emiti
     """Corre el pipeline completo. Nunca levanta: todo termina en 'listo' o 'error'."""
     carpeta = Path(tempfile.mkdtemp(prefix="pes-"))
     devolver_cupo = False
+    fallo: PesError | None = None
     try:
         async with asyncio.timeout(deps.cfg.limite_job_s):
             await _pipeline(job, ref, deps, carpeta, emitir)
@@ -120,6 +123,7 @@ async def procesar(job: dict, ref: VideoRef, reserva: Reserva, deps: Deps, emiti
             log.exception("job roto id=%s %s", job["id"], ref.clave)
             pes = error("interno", http=500, devolver_cupo=True)
         devolver_cupo = pes.devolver_cupo
+        fallo = pes
         await _fallar(job, ref, pes, deps, emitir)
     finally:
         shutil.rmtree(carpeta, ignore_errors=True)
@@ -127,6 +131,10 @@ async def procesar(job: dict, ref: VideoRef, reserva: Reserva, deps: Deps, emiti
             await liberar(deps.store, reserva, devolver_cupo)
         except Exception:  # noqa: BLE001
             log.exception("no se pudo liberar la reserva del job %s", job["id"])
+    # Errores nuestros (los que devuelven el cupo): si se repiten, aviso al celu. Va después de
+    # liberar el lock, así la persona puede reintentar mientras se manda.
+    if fallo and fallo.devolver_cupo and deps.alertas:
+        await deps.alertas.error_nuestro(fallo.codigo, ref.plataforma)
 
 
 async def _fallar(job: dict, ref: VideoRef, pes: PesError, deps: Deps, emitir: Emitir) -> None:

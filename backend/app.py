@@ -18,6 +18,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response, StreamingRes
 from pydantic import BaseModel, Field
 
 from pes import config as configuracion
+from pes.alertas import Alertas
 from pes.descarga import descargar
 from pes.errores import PesError, error
 from pes.jobs import (
@@ -61,6 +62,14 @@ def _wait_until(tarea: asyncio.Task) -> None:
         log.debug("wait_until no disponible: %s", e)
 
 
+def _en_segundo_plano(corrutina) -> None:
+    """Para las alertas: no demoran la respuesta y Vercel espera a que terminen."""
+    tarea = asyncio.create_task(corrutina)
+    _TAREAS.add(tarea)
+    tarea.add_done_callback(_TAREAS.discard)
+    _wait_until(tarea)
+
+
 def obtener_deps() -> Deps:
     global _DEPS
     if _DEPS is None:
@@ -77,6 +86,7 @@ def obtener_deps() -> Deps:
             transcribir=lambda audio: transcribir_groq(audio, cfg.groq_api_key, cfg.modelo_groq_whisper, cliente),
             traducir=crear_traductor(cfg, cliente),
             leer_texto=partial(leer_texto, cfg=cfg, cliente=cliente),
+            alertas=Alertas(cfg, store, cliente),
         )
         if cfg.demo:
             from pes import demo
@@ -131,7 +141,8 @@ def _linea(evento: dict) -> bytes:
 
 @app.get("/api/salud")
 async def salud(deps: DepsDep) -> dict:
-    return {"ok": True, "pausado": deps.cfg.pausado, "configurado": not deps.cfg.faltantes()}
+    alertas = bool(deps.alertas and deps.alertas.activas)
+    return {"ok": True, "pausado": deps.cfg.pausado, "configurado": not deps.cfg.faltantes(), "alertas": alertas}
 
 
 @app.post("/api/jobs")
@@ -141,6 +152,8 @@ async def crear_job(pedido: PedidoJob, request: Request, deps: DepsDep) -> Respo
         raise error("pausado", http=503)
     if faltan := cfg.faltantes():
         log.error("faltan variables de entorno: %s", ", ".join(faltan))
+        if deps.alertas:
+            _en_segundo_plano(deps.alertas.falta_config(faltan))
         raise error("config", http=503)
 
     ref = await deps.resolver(pedido.url)  # valida antes de gastar nada
@@ -161,7 +174,12 @@ async def crear_job(pedido: PedidoJob, request: Request, deps: DepsDep) -> Respo
             return JSONResponse({"etapa": job["estado"], "id": job["id"], "url": f"/v/{job['id']}"})
         await store.delete(clave_video(ref))  # apuntaba a un job que falló o venció: se reintenta
 
-    reserva = await reservar(store, hash_ip(ip, cfg.sal, fecha_local(ahora)), cfg, ahora)
+    try:
+        reserva = await reservar(store, hash_ip(ip, cfg.sal, fecha_local(ahora)), cfg, ahora)
+    except PesError as e:
+        if e.codigo in ("cupo_global", "cupo_hora") and deps.alertas:
+            _en_segundo_plano(deps.alertas.cupo_lleno(e.codigo))
+        raise
     job_id = nuevo_id()
     if not await store.set(clave_video(ref), job_id, ex=cfg.ttl_s, nx=True):
         # Otra persona lo pidió en este mismo instante: se espera ese.
