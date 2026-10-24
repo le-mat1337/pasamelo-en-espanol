@@ -1,8 +1,8 @@
 # pasameloenespañol.com
 
-¿Cómo no va a saber inglés en big 2026? 💀 Pegás el link de un reel de Instagram o un TikTok en inglés y te devuelve un link con el video subtitulado al español, listo para mandárselo a quien no sabe inglés. Gratis, sin cuenta, y el link dura 24 horas.
+¿Cómo no vas a saber inglés en big 2026? 💀 Pegás el link de un reel de Instagram o un TikTok en inglés y te devuelve un link con el video subtitulado al español, listo para mandárselo a quien no sabe inglés. Gratis, sin cuenta, y el link dura 24 horas.
 
-Hecho por [Mat · Fool Stack Dev](https://www.instagram.com/le.mat1337/) como proyecto abierto: el código está acá para que lo leas, lo critiques y lo uses.
+Hecho por [Mat · Fool Stack Dev](https://foolstack.sh) como proyecto abierto: el código está acá para que lo leas, lo critiques y lo uses.
 
 ## Cómo funciona
 

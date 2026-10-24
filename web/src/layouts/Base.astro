@@ -11,14 +11,14 @@ interface Props {
 }
 const {
   title,
-  description = '¿Cómo no va a saber inglés en big 2026? 💀 Pegá el link de un reel o un TikTok y mandáselo con subtítulos en español. Gratis, sin cuenta.',
+  description = '¿Cómo no vas a saber inglés en big 2026? 💀 Pegá el link de un reel o un TikTok y mandáselo con subtítulos en español. Gratis, sin cuenta.',
   oscuro = false,
   indexar = true,
 } = Astro.props;
 const canonical = new URL(Astro.url.pathname, Astro.site);
 const og = new URL('/og.png', Astro.site);
-const repo = import.meta.env.PUBLIC_REPO_URL || 'https://github.com/le-mat1337/pasamelo-en-espanol';
-const autor = import.meta.env.PUBLIC_AUTOR_URL || 'https://www.instagram.com/le.mat1337/';
+const codigo = import.meta.env.PUBLIC_CODIGO_URL || 'https://foolstack.sh/mochila';
+const autor = import.meta.env.PUBLIC_AUTOR_URL || 'https://foolstack.sh';
 ---
 
 <!doctype html>
@@ -49,7 +49,7 @@ const autor = import.meta.env.PUBLIC_AUTOR_URL || 'https://www.instagram.com/le.
       <slot />
       <footer class="pie">
         <span>Hecho por <a href={autor}>Fool Stack Dev</a></span>
-        <a href={repo}>Código abierto</a>
+        <a href={codigo}>Código abierto</a>
       </footer>
     </main>
     {import.meta.env.PROD && <script is:inline defer src="/_vercel/insights/script.js" />}
